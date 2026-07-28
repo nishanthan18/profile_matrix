@@ -1,0 +1,59 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment Variables
+.env
+
+# Streamlit Secrets
+.streamlit/secrets.toml
+
+# VS Code
+.vscode/
+
+# PyCharm
+.idea/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+
+# Coverage
+.coverage
+htmlcov/
+
+# SQLite
+*.db
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+
+# PDF Reports (optional)
+reports/
+
+# Uploaded resumes (optional)
+uploads/
+
+# Model files (if any)
+models/
