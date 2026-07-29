@@ -89,20 +89,3 @@ streamlit run app.py
    skills (comma separated) and the minimum years of experience, then click
    **Run Shortlisting** to get a ranked, colour-coded table you can export as CSV.
 
-## Notes / limitations (important for your project report)
-
-- All extraction is **rule-based** (regex + `python-dateutil`), not machine-learning based,
-  as required (no API usage). This keeps the tool fully offline and free to run.
-- Resumes vary a lot in formatting; the section-splitter and project-splitter use heuristics
-  (line length, capitalisation, known header words, and — for combined headers like
-  "Certifications & Achievements" — connector words) to find boundaries. Extremely unusual
-  resume layouts (heavy multi-column PDFs, image-only/scanned resumes) may still need the
-  `skills_database.py` keyword list expanded, or minor tweaks to `section_splitter.py`.
-- Location detection only recognizes a curated list of Indian + major international cities
-  without an explicit "Location:"/"Address:" label; add more to `INDIAN_CITY_HINTS` /
-  `GLOBAL_CITY_HINTS` in `contact_extractor.py` if your candidate pool skews elsewhere.
-- To add more recognised skills/tools, just add them to the appropriate category list in
-  `parser/skills_database.py` — every other module (experience, projects, shortlisting)
-  automatically picks up the change.
-- The shortlisting score = 70% required-skills match + 30% experience-threshold match.
-  You can change these weights in `parser/shortlisting.py` (`score_candidate` function).    
