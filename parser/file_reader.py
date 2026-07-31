@@ -77,6 +77,7 @@ def _extract_pdf(raw_bytes: bytes) -> str:
     return full_text
 
 
+# Explicit, well-known field labels -- kept as a fast/obvious first check.
 _LABEL_LEFT_TEXT_RE = re.compile(
     r"^(project(?:\s*title)?[\s\-\d]*|year|role|client|technolog(?:y|ies)|"
     r"techniques?|library\s*used|environment|description|responsibilities|"
@@ -87,6 +88,41 @@ _LABEL_LEFT_TEXT_RE = re.compile(
 
 
 _GAP_LINE_RE = re.compile(r"^(\s*)(\S.*?)( {4,})(\S.*)$")
+
+
+def _is_label_line(line: str) -> bool:
+    """
+    True for any structured "Label:   value" line -- e.g. "Role:", "Client:",
+    but also resume-specific labels the fixed regex above doesn't know about
+    ("Languages:", "Web Technologies:", "Database:", "Web/Application
+    Servers:", "Software Methodologies:", "IDEs/Tools:", "Operating System:",
+    "DevOps Tools:", ...). Such lines must never be treated as one side of a
+    genuine two-column layout -- a real two-column resume's columns are
+    prose/paragraph text, not a short colon-terminated tag.
+
+    Previously only the fixed keyword list above was checked, so a resume's
+    Technical Skills block (which is often 6-10 consecutive "Label: value"
+    lines) could itself get misread as a dense two-column run and get its
+    lines reordered -- and depending on exact spacing, that reordering could
+    also drag in and scramble an adjacent section (e.g. separating an
+    "Educational Experience" header from its content), causing that section
+    to go missing downstream even though the raw text technically contains it.
+    """
+    m = _GAP_LINE_RE.match(line)
+    if not m:
+        return False
+    left_text = m.group(2).strip()
+    if _LABEL_LEFT_TEXT_RE.match(left_text):
+        return True
+    # General fallback: any short (<=4 word) left-hand text ending in ":" is
+    # a field label, not a genuine left-column paragraph -- regardless of
+    # the exact wording, so we don't have to keep hard-coding every possible
+    # label a resume template might use.
+    if left_text.endswith(":"):
+        words = left_text[:-1].split()
+        if 1 <= len(words) <= 4:
+            return True
+    return False
 
 
 def _split_columns(layout_text: str) -> str:
@@ -104,12 +140,9 @@ def _split_columns(layout_text: str) -> str:
     n = len(raw_lines)
     is_gap = [bool(_GAP_LINE_RE.match(line)) for line in raw_lines]
 
-    # A single-column "Label : value" list (Role:, Client:, Year:, ...) can
-    # also read as a dense run -- exclude those lines from run detection.
-    def _is_label_line(line):
-        m = _GAP_LINE_RE.match(line)
-        return bool(m) and bool(_LABEL_LEFT_TEXT_RE.match(m.group(2).strip()))
-
+    # A single-column "Label : value" list (Role:, Client:, Year:, Languages:,
+    # Database:, ...) can also read as a dense run -- exclude those lines
+    # from run detection.
     is_gap = [g and not _is_label_line(raw_lines[i]) for i, g in enumerate(is_gap)]
 
     runs = []
