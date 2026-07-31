@@ -9,25 +9,48 @@ listing projects, "Education & Certifications" as one combined header, etc).
 Instead of matching an exact phrase, we match on keyword substrings -- much
 more forgiving of real-world variation.
 
-Two things that used to cause real data loss and have been fixed here:
+Three things that used to cause real data loss and have been fixed here:
 
 1. COMBINED HEADERS ("Education & Certifications", "Certifications and
-   Achievements", "Projects & Internships"...). Previously the FIRST rule in
-   a fixed priority list "won" outright, so e.g. "Education & Certifications"
-   was classified as *only* certifications and the education content
-   (degree, university, year) silently vanished into the certifications
-   bucket. Now, when a header line matches more than one canonical section,
-   the content that follows is duplicated into *every* matched section until
-   the next header. Nothing is dropped, and downstream extractors (which
-   each look at a specific section) still find what they need.
+   Achievements", "Projects & Internships"...). When a header line matches
+   more than one canonical section, the content that follows is duplicated
+   into *every* matched section until the next header, so nothing is lost.
 
 2. UNRECOGNISED HEADERS ("Languages Known", "Hobbies & Interests",
-   "Declaration", "Publications", "Volunteer Experience", ...). These used
-   to fall through and get silently appended to whatever the previous
-   section happened to be (e.g. a "Hobbies" block tacked onto the end of
-   "Certifications" text), polluting that section. They now have their own
-   canonical buckets so they stop contaminating the sections the rest of the
-   pipeline actually reads.
+   "Declaration", "Publications", ...) have their own canonical buckets so
+   they stop contaminating whatever section came before them.
+
+3. FALSE-POSITIVE HEADERS (the big one). Two separate patterns were
+   silently reclassifying ordinary content as a brand-new section header,
+   which reset "current section" mid-way through the real experience/
+   projects section and caused most entries to vanish or land in the
+   wrong bucket:
+
+   a) In-entry field labels like "Project Name: SSCOM-298", "Technology &
+      Tools: .Net Core, ..." were not recognised as structured data (the
+      old field-label regex only matched bare "Project:", not "Project
+      Name:" or "Technology & Tools:"), so they were read as new section
+      headers -- e.g. hitting "Project Name:" inside a work-history entry
+      would flip the whole rest of that entry (and every entry after it,
+      until the next real header) into the "projects" bucket instead of
+      "experience". Fixed with a general `_is_field_label_line()` check:
+      any "Label(s): value" line whose label words are all known
+      field-label words (project, name, client, team, size, technology,
+      tools, ...) is treated as data, never a header, regardless of the
+      exact wording combination.
+
+   b) Ordinary sentences that merely *contain* a header keyword as a
+      substring -- e.g. "...transform them into functional applications
+      in line with business objectives." -- were being matched because
+      "objectives" contains "objective" (a "summary" keyword), and any
+      line with 8 or fewer words was eligible for keyword-based header
+      detection. That's what was truncating the experience section down
+      to a single entry. Fixed by only trusting a keyword match on a line
+      that doesn't already look header-styled (no ':', not ALLCAPS, not
+      Title Case) when the line is essentially JUST the header phrase --
+      at most one extra filler word beyond the matched keyword(s). Lines
+      that already look header-styled (e.g. "Education & Certifications")
+      keep the original, more permissive combined-header matching.
 """
 
 import re
@@ -36,34 +59,102 @@ import re
 # canonical section (see module docstring); order here only affects tie-breaks
 # when a keyword match starts at the same character position.
 _HEADER_RULES = [
-    # "experience" is checked before "projects" so that a compound header
-    # like "PROJECT EXPERIENCE" (very common for a jobs/work-history
-    # section) resolves to "experience", not "projects" -- losing the
-    # experience-section boundary breaks date-range parsing, total
-    # experience, and the stack-wise breakdown, whereas project data is
-    # still independently recoverable from the raw text by
-    # project_extractor's labeled/narrative patterns even if it doesn't end
-    # up isolated in the "projects" bucket.
-    ("experience", ["experience", "employment", "work history", "internship",
-                     "career history", "professional background"]),
-    ("projects", ["project", "case stud"]),
-    ("certifications", ["certificat", "licens"]),
-    ("achievements", ["achievement", "award", "accomplishment", "honor", "honour",
-                       "accolade"]),
-    ("publications", ["publication", "research paper", "patent"]),
-    ("education", ["education", "academic background", "academic qualification",
-                    "qualification", "scholastic"]),
-    ("skills", ["skill", "competenc", "technical", "technolog", "tech stack",
-                "tools", "core strength", "areas of expertise", "expertise",
-                "proficienc"]),
-    ("languages", ["language known", "languages known", "language proficienc",
-                    "languages spoken"]),
-    ("hobbies", ["hobbies", "hobby", "interest", "extracurricular",
-                  "co-curricular", "extra curricular"]),
-    ("declaration", ["declaration"]),
-    ("references", ["reference"]),
-    ("summary", ["summary", "objective", "vision", "profile", "about me",
-                  "career goal", "professional summary"]),
+
+    ("education", [
+        "educational experience",
+        "education",
+        "educational",
+        "academic background",
+        "academic qualification",
+        "qualification",
+        "scholastic",
+        "degree",
+        "university",
+        "college"
+    ]),
+
+    ("experience", [
+        "experience",
+        "employment",
+        "work history",
+        "internship",
+        "career history",
+        "professional background"
+    ]),
+
+    ("projects", [
+        "project",
+        "case stud"
+    ]),
+
+    ("certifications", [
+        "certification",
+        "certified",
+        "license",
+        "licence"
+    ]),
+
+    ("achievements", [
+        "achievement",
+        "award",
+        "accomplishment",
+        "honor",
+        "honour",
+        "accolade"
+    ]),
+
+    ("publications", [
+        "publication",
+        "research paper",
+        "patent"
+    ]),
+
+    ("skills", [
+        "skill",
+        "competenc",
+        "technical",
+        "technolog",
+        "tech stack",
+        "tools",
+        "core strength",
+        "areas of expertise",
+        "expertise",
+        "proficienc"
+    ]),
+
+    ("languages", [
+        "language known",
+        "languages known",
+        "language proficienc",
+        "languages spoken"
+    ]),
+
+    ("hobbies", [
+        "hobbies",
+        "hobby",
+        "interest",
+        "extracurricular",
+        "co-curricular",
+        "extra curricular"
+    ]),
+
+    ("declaration", [
+        "declaration"
+    ]),
+
+    ("references", [
+        "reference"
+    ]),
+
+    ("summary", [
+        "summary",
+        "objective",
+        "vision",
+        "profile",
+        "about me",
+        "career goal",
+        "professional summary"
+    ]),
 ]
 
 # "language" alone is deliberately NOT a global keyword above (it's also used
@@ -72,46 +163,73 @@ _HEADER_RULES = [
 # genuine top-level section header.
 
 
-# Field-label lines like "Project : Titanium Legal Services" or "Year : 2018 - 2020"
-# are structured data, never section headers -- even though they can be short and
-# title-cased enough to otherwise look like one.
-_FIELD_LABEL_RE = re.compile(
-    r"^\s*(project(?:\s*title)?|year|role|client|technolog(?:y|ies)|techniques?|"
-    r"library\s*used|environment|description|responsibilities|duration|"
-    r"team\s*size|language|microcontroller|robots?|operating\s*platform|"
-    r"tech(?:nical)?\s*stack|skills?\s*used|tools?\s*used|"
-    r"grade|percentage|cgpa|gpa|score)\s*[-:]",
-    re.IGNORECASE,
-)
+# General "Label: value" / "Label1 & Label2: value" detector. Covers every
+# in-entry field line (Project Name:, Technology & Tools:, Team Size: ...)
+# without hard-coding each exact wording combination -- previously only
+# exact phrasings like bare "Project:" were recognised, so "Project Name:"
+# and "Technology & Tools:" fell through and were misread as new section
+# headers, silently truncating the experience/projects sections.
+_FIELD_LABEL_KEYWORDS = {
+    "project", "projects", "title", "year", "role", "client", "technology",
+    "technologies", "technique", "techniques", "library", "libraries",
+    "environment", "description", "responsibilities", "responsibility",
+    "duration", "team", "size", "language", "languages", "microcontroller",
+    "robot", "robots", "platform", "stack", "tool", "tools", "skill",
+    "skills", "grade", "percentage", "cgpa", "gpa", "score", "name", "used",
+    "domain", "framework", "frameworks", "database", "databases", "type",
+    "operating",
+}
+_CONNECTORS = {"and", "used", "of", "&"}
+
+# Filler words ignored when deciding whether a short, non-header-styled line
+# is "mostly just the header phrase" vs. an ordinary sentence that happens
+# to contain a header keyword as a substring.
+_FILLER_WORDS = {"and", "the", "of", "for", "in", "on", "a", "an", "&"}
+
+
+def _is_field_label_line(stripped: str) -> bool:
+    """True for 'Label: value' / 'Label1 & Label2: value' lines such as
+    'Project Name: X', 'Technology & Tools: Y', 'Team Size: 8'. These are
+    structured data inside an experience/project block and must never be
+    treated as section headers, even though they can be short/title-cased
+    enough to otherwise look like one."""
+    if not stripped or (":" not in stripped and "-" not in stripped):
+        return False
+    parts = re.split(r"\s*[-:]\s*", stripped, maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        return False
+    label_part = parts[0].strip().lower()
+    words = re.findall(r"[a-z]+", label_part)
+    if not words or len(words) > 5:
+        return False
+    return all(w in _FIELD_LABEL_KEYWORDS or w in _CONNECTORS for w in words)
 
 
 _CONNECTOR_ONLY_RE = re.compile(r"^(&|/|,|and|\+|plus)$")
 
 
-def _match_headers(line: str):
+def _match_headers(line: str, strict: bool = False):
+    """Returns the list of canonical sections this line's header matches.
+
+    strict=True is used for lines that don't already look header-styled on
+    their own (no trailing ':', not ALLCAPS, not Title Case) -- i.e. plain
+    sentences from a messy PDF. For those, a keyword match is only accepted
+    if the line is essentially JUST the header phrase (at most one extra
+    filler word), so an ordinary sentence that happens to contain a header
+    keyword as a substring (e.g. "...business objectives.") isn't misread
+    as a new section header.
     """
-    Returns an ORDERED list of every canonical section a header line matches.
-
-    Most headers describe exactly one section even when they contain a word
-    that happens to also be another section's keyword -- e.g. "Relevant
-    Project Experience" is a *single* projects-flavoured experience header,
-    not "projects" + "experience" duplicated. For these, the ORIGINAL
-    priority order (projects before experience, etc, as listed in
-    _HEADER_RULES) picks the single winner, same as before.
-
-    Only when two keyword hits are separated by an explicit connector
-    ("&", "/", ",", "and", ...) -- e.g. "Education & Certifications",
-    "Certifications and Achievements" -- do we treat it as a genuinely
-    combined header and duplicate the following text into every matched
-    section, so a truly combined header never loses content.
-
-    Returns [] if the line isn't a recognised header at all.
-    """
-    if _FIELD_LABEL_RE.match(line.strip()):
+    if _is_field_label_line(line.strip()):
         return []
+
     clean = line.strip().strip(":").strip().lower()
     clean = re.sub(r"[^a-z& ]", " ", clean).strip()
     clean = re.sub(r"\s+", " ", clean)
+
+    # Fix common resume heading
+    if "educational experience" in clean:
+        return ["education"]
+
     if not clean:
         return []
 
@@ -143,6 +261,26 @@ def _match_headers(line: str):
             earliest_per_canon[canon] = (start, end)
     hits = sorted(((s, e, c) for c, (s, e) in earliest_per_canon.items()), key=lambda x: x[0])
 
+    if strict:
+        # Reject if there's more than one real "extra" word beyond the
+        # matched header keyword(s) -- i.e. this is prose, not a header.
+        words_with_span = []
+        pos = 0
+        for w in clean.split(" "):
+            start = clean.find(w, pos)
+            end = start + len(w)
+            words_with_span.append((start, end, w))
+            pos = end
+        leftover = 0
+        for wstart, wend, w in words_with_span:
+            if w in _FILLER_WORDS:
+                continue
+            covered = any(not (wend <= hs or wstart >= he) for hs, he, _ in hits)
+            if not covered:
+                leftover += 1
+        if leftover > 1:
+            return []
+
     if len(hits) == 1:
         return [hits[0][2]]
 
@@ -166,13 +304,27 @@ def _match_headers(line: str):
     return [hits[0][2]]
 
 
-def _looks_like_header(stripped: str) -> bool:
+def _looks_like_header(stripped: str):
     if not stripped:
         return False
-    word_count = len(stripped.split())
-    if word_count > 6:
+
+    # Ignore long sentences
+    if len(stripped.split()) > 8:
         return False
-    return bool(stripped.isupper() or stripped.istitle() or stripped.endswith(":"))
+
+    # Headers ending with :
+    if stripped.endswith(":"):
+        return True
+
+    # ALL CAPS
+    if stripped.isupper():
+        return True
+
+    # Title Case
+    if stripped.istitle():
+        return True
+
+    return False
 
 
 def split_sections(text: str) -> dict:
@@ -193,15 +345,31 @@ def split_sections(text: str) -> dict:
     for line in lines:
         stripped = line.strip()
         is_header_line = _looks_like_header(stripped)
-        matched = _match_headers(stripped) if is_header_line else []
-        # also try matching even if not "header-looking" line, for messy PDFs
-        if not matched and len(stripped.split()) <= 4:
-            matched = _match_headers(stripped)
+
+        # Lines that already look header-styled (colon/ALLCAPS/Title Case)
+        # get the normal (looser) combined-header matching -- this is what
+        # correctly catches "PROJECTS HANDLED", "KEY COMPETENCIES",
+        # "Education & Certifications", etc.
+        #
+        # Lines that DON'T look header-styled -- short, plain sentences from
+        # a messy PDF -- get the strict check instead, so an ordinary
+        # sentence that happens to contain a header keyword as a substring
+        # (e.g. "...business objectives.") is never misread as a new
+        # section header and doesn't truncate the section it's actually
+        # part of.
+        if is_header_line:
+            matched = _match_headers(stripped, strict=False)
+        elif len(stripped.split()) <= 4:
+            matched = _match_headers(stripped, strict=True)
+        else:
+            matched = []
 
         if matched:
             current = matched
+
             for c in current:
                 sections.setdefault(c, [])
+
             continue
 
         for c in current:
