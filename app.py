@@ -344,6 +344,73 @@ def page_candidate():
                             st.markdown(f'<div class="section-title">{label}</div>', unsafe_allow_html=True)
                             st.markdown(f'<div class="card">{text}</div>', unsafe_allow_html=True)
 
+                # ==================================================
+                # 🎯 NEW: Check Your Match Score Against a Job Description
+                # Candidate-only self-check — paste a JD, see how this
+                # exact resume scores against it. Reuses the same
+                # score_candidate() function the recruiter dashboard
+                # uses, so the number always matches recruiter-side logic.
+                # ==================================================
+                st.markdown("---")
+                st.markdown(
+                    '<div class="section-title">🎯 Check Your Match Score Against a Job Description</div>',
+                    unsafe_allow_html=True,
+                )
+                st.caption(
+                    "Paste a job description below to see how well this resume matches — "
+                    "skills are auto-detected from the JD text, the same way they're detected "
+                    "from resumes."
+                )
+
+                jd_text = st.text_area(
+                    "Paste the Job Description here",
+                    height=160,
+                    key="candidate_jd_paste",
+                    placeholder="Paste the full job description text here...",
+                )
+                jd_min_exp = st.number_input(
+                    "Minimum experience required (years) — optional, from the JD",
+                    min_value=0.0, step=0.5, value=0.0, key="candidate_jd_min_exp"
+                )
+
+                if st.button("🔍 Check My Score", type="primary", key="candidate_check_score"):
+                    if not jd_text.strip():
+                        st.warning("Paste a job description first.")
+                    else:
+                        with st.spinner("Analysing job description and scoring your resume..."):
+                            jd_parsed = parse_resume(jd_text)
+                            jd_required_skills = jd_parsed.get("all_skills", [])
+                            score_row = score_candidate(parsed, jd_required_skills, jd_min_exp)
+
+                        if not jd_required_skills:
+                            st.info(
+                                "No recognisable skills were detected in the pasted job "
+                                "description, so scoring may be less accurate. Try pasting "
+                                "the full JD including the requirements section."
+                            )
+
+                        sc1, sc2, sc3 = st.columns(3)
+                        sc1.metric("Match Score", f"{score_row.get('Match Score (%)', 0)}%")
+                        sc2.metric("Shortlisted?", score_row.get("Shortlisted", "No"))
+                        sc3.metric("Your Experience", score_row.get("Total Experience", "0 mo"))
+
+                        matched = score_row.get("Matched Skills", "-")
+                        missing = score_row.get("Missing Skills", "-")
+
+                        st.markdown("**✅ Matched Skills**")
+                        if matched and matched != "-":
+                            chips = "".join(f'<span class="chip">{s.strip().title()}</span>' for s in matched.split(","))
+                            st.markdown(f'<div class="card">{chips}</div>', unsafe_allow_html=True)
+                        else:
+                            st.caption("No overlapping skills found.")
+
+                        st.markdown("**❌ Missing Skills**")
+                        if missing and missing != "-":
+                            chips = "".join(f'<span class="chip">{s.strip().title()}</span>' for s in missing.split(","))
+                            st.markdown(f'<div class="card">{chips}</div>', unsafe_allow_html=True)
+                        else:
+                            st.caption("No missing skills — great match!")
+
                 # Save to Supabase
                 st.markdown("---")
                 if st.button("💾 Save Resume to My Profile", type="primary"):
