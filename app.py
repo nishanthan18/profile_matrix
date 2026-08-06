@@ -1,7 +1,7 @@
 """
 Profile Matrix — app.py
 Keeps the original working resume analyzer intact.
-Adds login layer on top: candidate / recruiter / admin.
+Adds login layer on top: candidate / recruiter, plus a hidden admin entry point.
 """
 
 import pandas as pd
@@ -50,6 +50,35 @@ def page_login():
     st.markdown("##### AI-Free Resume Analyzer & Shortlisting Platform")
     st.markdown("---")
 
+    # ------------------------------------------------------------
+    # Hidden admin entry point — no "Admin" option is shown anywhere
+    # in the public signup/login UI. Admin accounts are provisioned
+    # manually (Supabase dashboard / SQL), never via public self-signup.
+    # Reach this form only via ?admin=1 in the URL.
+    # ------------------------------------------------------------
+    is_admin_mode = st.query_params.get("admin") == "1"
+
+    if is_admin_mode:
+        st.markdown("### 🛡️ Admin Sign In")
+        email = st.text_input("Admin Email", key="admin_email")
+        password = st.text_input("Password", type="password", key="admin_pass")
+        if st.button("Sign In", type="primary", use_container_width=True):
+            if not email or not password:
+                st.warning("Fill in all fields.")
+            else:
+                with st.spinner("Signing in..."):
+                    result = login_with_email(email, password)
+                if result["success"]:
+                    if result["profile"].get("role") != "admin":
+                        st.error("This account does not have admin access.")
+                        logout()
+                    else:
+                        st.success("Logged in!")
+                        st.rerun()
+                else:
+                    st.error(result.get("error", "Login failed"))
+        return
+
     col_l, col_r = st.columns([1, 1], gap="large")
 
     with col_l:
@@ -58,7 +87,7 @@ def page_login():
 
         with tab_email:
             role = st.radio(
-                "I am a", ["Candidate", "Recruiter", "Admin"],
+                "I am a", ["Candidate", "Recruiter"],
                 horizontal=True, key="login_role"
             ).lower()
             email = st.text_input("Email", key="li_email")
@@ -82,7 +111,7 @@ def page_login():
 
         with tab_google:
             role_g = st.radio(
-                "I am a", ["Candidate", "Recruiter", "Admin"],
+                "I am a", ["Candidate", "Recruiter"],
                 horizontal=True, key="login_role_g"
             ).lower()
             st.markdown("")
@@ -99,7 +128,7 @@ def page_login():
     with col_r:
         st.markdown("### Create Account")
         role_s = st.radio(
-            "I am a", ["Candidate", "Recruiter", "Admin"],
+            "I am a", ["Candidate", "Recruiter"],
             horizontal=True, key="signup_role"
         ).lower()
         name = st.text_input("Full Name", key="su_name")
